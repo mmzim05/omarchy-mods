@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# Show a fuzzy-finder TUI for picking Flathub apps to install.
+# Mirrors omarchy-pkg-aur-install; installs flatpak and the Flathub remote on first use.
+
+omarchy-pkg-add flatpak || exit 1
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo || exit 1
+
+fzf_args=(
+  --multi
+  --delimiter '\t'
+  --with-nth '2,3'
+  --preview 'flatpak remote-info --user flathub {1}'
+  --preview-label='alt-p: toggle description, alt-j/k: scroll, tab: multi-select'
+  --preview-label-pos='bottom'
+  --preview-window 'down:65%:wrap'
+  --bind 'alt-p:toggle-preview'
+  --bind 'alt-d:preview-half-page-down,alt-u:preview-half-page-up'
+  --bind 'alt-k:preview-up,alt-j:preview-down'
+  --color 'pointer:green,marker:green'
+)
+
+app_ids=$(flatpak remote-ls --user --app --columns=application,name,description flathub | fzf "${fzf_args[@]}" | cut -f1)
+
+if [[ -n $app_ids ]]; then
+  echo "$app_ids" | xargs flatpak install --user --noninteractive -y flathub
+  omarchy-show-done
+fi

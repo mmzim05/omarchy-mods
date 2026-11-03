@@ -1,0 +1,2 @@
+"install.appimage": {"icon":"󰀻","label":"AppImage","description":"Install or update AppImages from ~/Downloads","action":"xdg-terminal-exec --app-id=org.omarchy.terminal omarchy-appimage-install"},
+"remove.appimage": {"icon":"󰀻","label":"AppImage","description":"Remove AppImages installed in ~/Applications","when":"grep -qiE \"^Exec=.*$HOME/Applications/.*\\.appimage\" $HOME/.local/share/applications/*.desktop","action":"xdg-terminal-exec --app-id=org.omarchy.terminal omarchy-appimage-remove"},

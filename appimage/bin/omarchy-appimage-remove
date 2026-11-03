@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# Show a fuzzy-finder TUI for picking installed AppImages to remove.
+# Counterpart to omarchy-appimage-install. An AppImage counts as installed when
+# a launcher entry in ~/.local/share/applications runs a file in ~/Applications,
+# which also covers AppImages that integrated themselves. Removing one deletes
+# the AppImage, its launcher entry and the icons named after the entry's id.
+
+app_dir="$HOME/Applications"
+desktop_dir="$HOME/.local/share/applications"
+icon_dirs=("$HOME/.local/share/icons/appimage" "$HOME/.local/share/icons/hicolor"/*/apps)
+
+# One row per installed AppImage: name, desktop file, AppImage path.
+rows=$(
+  for desktop in "$desktop_dir"/*.desktop; do
+    appimage=$(grep -m1 '^Exec=' "$desktop" | grep -oiE "$app_dir/[^\"]+\.appimage" | head -1)
+    [[ -n $appimage ]] || continue
+    name=$(grep -m1 '^Name=' "$desktop" | cut -d= -f2-)
+    printf '%s\t%s\t%s\n' "${name:-$(basename "$desktop" .desktop)}" "$desktop" "$appimage"
+  done | sort -f
+)
+
+if [[ -z $rows ]]; then
+  echo "No AppImages installed in $app_dir"
+  read -n 1 -s -r -p "Press any key to close"
+  exit 0
+fi
+
+fzf_args=(
+  --multi
+  --delimiter '\t'
+  --with-nth 1
+  --header "Remove AppImages"
+  --preview 'echo {3}'
+  --preview-window 'down:2:wrap'
+  --preview-label='tab: multi-select'
+  --preview-label-pos='bottom'
+  --color 'pointer:red,marker:red'
+)
+
+selected=$(fzf "${fzf_args[@]}" <<<"$rows")
+
+if [[ -n $selected ]]; then
+  while IFS=$'\t' read -r name desktop appimage; do
+    id=$(basename "$desktop" .desktop)
+    echo "Removing $name"
+    rm -f "$appimage" "$desktop"
+    for dir in "${icon_dirs[@]}"; do
+      rm -f "$dir/$id".{png,svg,xpm}
+    done
+  done <<<"$selected"
+  update-desktop-database "$desktop_dir" &>/dev/null
+  gtk-update-icon-cache -q "$HOME/.local/share/icons/hicolor" &>/dev/null
+  omarchy-show-done
+fi

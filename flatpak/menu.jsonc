@@ -1,0 +1,1 @@
+"install.flatpak": {"icon":"󰏖","label":"Flatpak","action":"xdg-terminal-exec --app-id=org.omarchy.terminal omarchy-flatpak-install"},

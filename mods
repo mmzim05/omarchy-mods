@@ -1,0 +1,148 @@
+#!/bin/bash
+
+# Install, update or remove Omarchy mods. Each mod is a folder in this repo
+# with a bin/ of scripts, copied into ~/.local/bin, and a menu.jsonc of
+# Omarchy menu rows, written into ~/.config/omarchy/extensions/omarchy-menu.jsonc
+# between "// omarchy-mods:<mod> start/end" markers. Installed mods are listed
+# in ~/.local/state/omarchy-mods/installed so update knows what to refresh.
+
+set -euo pipefail
+
+repo=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+bin_dir="$HOME/.local/bin"
+menu="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
+state="$HOME/.local/state/omarchy-mods/installed"
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") <command> [mod...]
+
+  list               Show available mods and which are installed
+  install <mod...>   Install mods, or reinstall them to pick up changes
+  update             Pull this repo, then reinstall every installed mod
+  remove <mod...>    Remove mods' scripts and menu rows
+EOF
+}
+
+available() {
+  local dir
+  for dir in "$repo"/*/; do
+    [[ -f $dir/menu.jsonc || -d $dir/bin ]] && basename "$dir"
+  done
+}
+
+installed() {
+  [[ -f $state ]] && cat "$state" || true
+}
+
+check_mod() {
+  [[ -d $repo/$1 && $1 != .* ]] || { echo "Unknown mod: $1 (see '$(basename "$0") list')" >&2; exit 1; }
+}
+
+# Print the menu file with the mod's marker block removed, then (when a
+# fragment is given) the block re-added where it was, else after the last
+# omarchy-mods block, else right after the opening brace. Keeping blocks at the top makes mod rows
+# appear before any of the user's own rows that reorder the defaults.
+render_menu() {
+  local mod=$1 fragment=${2:-}
+  awk -v mod="$mod" -v fragment="$fragment" '
+    function block(   line) {
+      print "  // omarchy-mods:" mod " start"
+      while ((getline line < fragment) > 0) print "  " line
+      print "  // omarchy-mods:" mod " end"
+    }
+    $0 == "  // omarchy-mods:" mod " start" { skip = 1; was = n; next }
+    skip { if ($0 == "  // omarchy-mods:" mod " end") skip = 0; next }
+    { lines[++n] = $0 }
+    /^  \/\/ omarchy-mods:.* end$/ { last = n }
+    /^\{/ && !open { open = n }
+    END {
+      if (fragment != "" && !open) { print "omarchy-mods: no top-level { in menu file" > "/dev/stderr"; exit 1 }
+      at = was != "" ? was : last ? last : open
+      for (i = 1; i <= n; i++) {
+        print lines[i]
+        if (fragment != "" && i == at) block()
+      }
+    }
+  ' "$menu"
+}
+
+write_menu() {
+  local tmp
+  tmp=$(mktemp "$menu.XXXXXX")
+  render_menu "$@" >"$tmp" || { rm -f "$tmp"; exit 1; }
+  # Leave the file untouched when nothing changed, so chezmoi stays in sync.
+  if cmp -s "$tmp" "$menu"; then
+    rm -f "$tmp"
+  else
+    chmod --reference="$menu" "$tmp"
+    mv -f "$tmp" "$menu"
+  fi
+}
+
+# record <mod> add|remove
+record() {
+  local list
+  list=$(installed | grep -vx -- "$1" || true)
+  [[ $2 == add ]] && list+=$'\n'$1
+  mkdir -p "$(dirname "$state")"
+  sed '/^$/d' <<<"$list" | sort -u >"$state"
+}
+
+install_mod() {
+  local mod=$1 script
+  check_mod "$mod"
+  if [[ -d $repo/$mod/bin ]]; then
+    mkdir -p "$bin_dir"
+    for script in "$repo/$mod"/bin/*; do
+      install -m0755 "$script" "$bin_dir/"
+    done
+  fi
+  if [[ -f $repo/$mod/menu.jsonc ]]; then
+    [[ -f $menu ]] || { mkdir -p "$(dirname "$menu")"; printf '{\n}\n' >"$menu"; }
+    write_menu "$mod" "$repo/$mod/menu.jsonc"
+  fi
+  record "$mod" add
+  echo "Installed $mod"
+}
+
+remove_mod() {
+  local mod=$1 script
+  check_mod "$mod"
+  for script in "$repo/$mod"/bin/*; do
+    [[ -e $script ]] && rm -f "$bin_dir/$(basename "$script")"
+  done
+  [[ -f $menu ]] && write_menu "$mod"
+  record "$mod" remove
+  echo "Removed $mod"
+}
+
+cmd=${1:-}
+shift || true
+
+case $cmd in
+  list)
+    mapfile -t have < <(installed)
+    for mod in $(available); do
+      if printf '%s\n' "${have[@]}" | grep -qx "$mod"; then echo "$mod (installed)"; else echo "$mod"; fi
+    done
+    ;;
+  install)
+    (($#)) || { usage >&2; exit 1; }
+    for mod in "$@"; do install_mod "$mod"; done
+    ;;
+  update)
+    git -C "$repo" pull --ff-only
+    # Re-exec so the pulled version of this script does the reinstall.
+    mapfile -t have < <(installed)
+    ((${#have[@]})) && exec "$repo/mods" install "${have[@]}"
+    ;;
+  remove)
+    (($#)) || { usage >&2; exit 1; }
+    for mod in "$@"; do remove_mod "$mod"; done
+    ;;
+  *)
+    usage
+    [[ $cmd == -h || $cmd == --help ]] || exit 1
+    ;;
+esac

@@ -1,0 +1,147 @@
+#!/bin/bash
+
+# Build and install DaVinci Resolve Studio from the installer zip that
+# Blackmagic's site hands out (DaVinci_Resolve_Studio_<version>_Linux.zip).
+# Picks the zip from ~/Downloads, then builds the AUR davinci-resolve-studio
+# package against it with the version and checksum patched to match, so a
+# new release can be installed before the AUR package catches up.
+
+set -euo pipefail
+
+downloads=$(xdg-user-dir DOWNLOAD 2>/dev/null || echo "$HOME/Downloads")
+# Build in the home cache: Resolve extracts to ~4GB, which exhausts /tmp tmpfs
+BUILD_BASE="$HOME/.cache/davinci-resolve-build"
+LOG="$HOME/.cache/davinci-resolve-install.log"
+
+zips=$(find "$downloads" -maxdepth 1 -type f -name 'DaVinci_Resolve_Studio_*_Linux.zip' -printf '%T@ %p\n' 2>/dev/null | sort -rn | cut -d' ' -f2-)
+
+if [[ -z $zips ]]; then
+  echo "No DaVinci_Resolve_Studio_*_Linux.zip found in $downloads"
+  read -n 1 -s -r -p "Press any key to close"
+  exit 0
+fi
+
+if [[ $(wc -l <<<"$zips") -eq 1 ]]; then
+  ZIP_FILE=$zips
+else
+  ZIP_FILE=$(fzf --delimiter '/' --with-nth -1 --header "Resolve installers in $downloads" --color 'pointer:green' <<<"$zips") || exit 0
+fi
+
+# Clean up previous run artifacts
+rm -f "$LOG"
+rm -rf "$BUILD_BASE"
+
+# Tee everything to log file so a closed terminal doesn't lose output
+exec > >(tee -a "$LOG") 2>&1
+
+echo "=== DaVinci Resolve Studio installer ==="
+echo "Log: $LOG"
+echo "Started: $(date)"
+echo ""
+
+# On failure, leave the build dir in place for inspection
+on_exit() {
+  local code=$?
+  if [[ $code -ne 0 ]]; then
+    echo ""
+    echo "FAILED (exit code $code)"
+    echo "Build dir left at: $BUILD_BASE"
+    echo "Log saved to: $LOG"
+    read -n 1 -s -r -p "Press any key to close"
+  fi
+}
+trap on_exit EXIT
+
+echo "Found installer: $(basename "$ZIP_FILE")"
+
+# Extract version from filename e.g. DaVinci_Resolve_Studio_21.0_Linux.zip -> 21.0
+BASENAME=$(basename "$ZIP_FILE")
+VERSION=$(echo "$BASENAME" | grep -oP '(?<=DaVinci_Resolve_Studio_)[\d.]+(?=_Linux\.zip)' || true)
+
+if [[ -z "$VERSION" ]]; then
+  echo "Error: Could not extract version from: $BASENAME"
+  exit 1
+fi
+
+echo "Version: $VERSION"
+
+# Compute sha256sum
+echo "Computing SHA256 (may take a moment for large file)..."
+SHA256=$(sha256sum "$ZIP_FILE" | awk '{print $1}')
+echo "SHA256: $SHA256"
+
+omarchy-pkg-add git python base-devel
+
+# Clone AUR repo into home cache (not /tmp — DR extracts ~4GB)
+mkdir -p "$BUILD_BASE"
+echo "Cloning AUR package to $BUILD_BASE..."
+git clone https://aur.archlinux.org/davinci-resolve-studio.git "$BUILD_BASE"
+
+# Copy installer zip into the build dir so makepkg finds it locally
+cp "$ZIP_FILE" "$BUILD_BASE/"
+
+cd "$BUILD_BASE"
+
+# Patch PKGBUILD: update pkgver, sha256sum, and fix panels extraction
+echo "Patching PKGBUILD..."
+python3 - "$VERSION" "$SHA256" << 'PYEOF'
+import re, sys
+
+version = sys.argv[1]
+sha256  = sys.argv[2]
+
+with open('PKGBUILD', 'r') as f:
+    content = f.read()
+
+content = re.sub(r'^pkgver=.*', 'pkgver=' + version, content, flags=re.MULTILINE)
+content = re.sub(r"'([0-9a-f]{64}|SKIP)'", "'" + sha256 + "'", content, count=1)
+
+# DR 21.0: dvpanel-framework-linux-x86_64.tgz is not gzip (bsdtar auto-detects).
+# Also no longer contains a lib/ subdir, so make chmod/mv conditional.
+old_block = (
+    '  pushd "squashfs-root/share/panels"\n'
+    '  tar -zxf dvpanel-framework-linux-x86_64.tgz\n'
+    '  chmod -R u+rwX,go+rX,go-w "lib"\n'
+    '  mv *.so "${srcdir}/squashfs-root/libs"\n'
+    '  mv lib/* "${srcdir}/squashfs-root/libs"\n'
+    '  popd'
+)
+new_block = (
+    '  pushd "squashfs-root/share/panels"\n'
+    '  bsdtar -xf dvpanel-framework-linux-x86_64.tgz\n'
+    '  [[ -d lib ]] && chmod -R u+rwX,go+rX,go-w "lib" || true\n'
+    '  for _so in *.so; do [[ -f "$_so" ]] && mv "$_so" "${srcdir}/squashfs-root/libs/"; done\n'
+    '  [[ -d lib ]] && mv lib/* "${srcdir}/squashfs-root/libs/" || true\n'
+    '  popd'
+)
+if old_block in content:
+    content = content.replace(old_block, new_block)
+    print('Patched panels block.')
+else:
+    content = content.replace('tar -zxf dvpanel-framework-linux-x86_64.tgz',
+                              'bsdtar -xf dvpanel-framework-linux-x86_64.tgz')
+    print('Warning: panels block not matched exactly, only patched tar line.')
+
+with open('PKGBUILD', 'w') as f:
+    f.write(content)
+
+print('Done.')
+PYEOF
+
+echo ""
+echo "Patched PKGBUILD (relevant lines):"
+grep -E "^pkgver=|sha256sums" PKGBUILD | head -6
+echo ""
+
+echo "Building and installing DaVinci Resolve Studio $VERSION..."
+echo "(PKGEXT='.pkg.tar' skips compression — much faster for large packages)"
+echo ""
+PKGEXT='.pkg.tar' makepkg -si
+
+# Only clean up on success
+cd "$HOME"
+rm -rf "$BUILD_BASE"
+
+echo ""
+echo "=== DaVinci Resolve Studio $VERSION installed ==="
+omarchy-show-done

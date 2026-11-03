@@ -1,0 +1,1 @@
+"install.editor.davinci-resolve": {"icon":"󰕧","label":"DaVinci Resolve","description":"Build and install Resolve Studio from a ~/Downloads zip","action":"xdg-terminal-exec --app-id=org.omarchy.terminal omarchy-davinci-resolve-install"},
