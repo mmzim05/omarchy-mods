@@ -12,42 +12,60 @@ icon_dir="$HOME/.local/share/icons/appimage"
 
 omarchy-pkg-add fuse2 || exit 1
 
+# Print the path inside the extracted image that <path> finally points to,
+# extracting each symlink target on the way. Absolute links into the build
+# machine's AppDir (/.../Foo.AppDir/x) are taken relative to the image root.
+resolve_in_image() {
+  local src=$1 root=$2 path=$3 target _
+  for _ in 1 2 3 4 5; do
+    [[ -L $root/$path ]] || break
+    target=$(readlink "$root/$path")
+    if [[ $target == /* ]]; then
+      [[ $target == *.AppDir/* ]] && target=${target#*.AppDir/} || target=${target#/}
+    else
+      target=$(dirname "$path")/$target
+    fi
+    path=$(realpath -m --relative-to=/ "/$target")
+    (cd "$(dirname "$root")" && "$src" --appimage-extract "$path") >/dev/null 2>&1
+  done
+  echo "$path"
+}
+
 install_appimage() {
-  local src=$1 tmp desktop id dest icon icon_target ext
+  local src=$1 tmp root link desktop id dest icon ext
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' RETURN
+  root="$tmp/squashfs-root"
 
   chmod +x "$src"
   # Extract only the metadata; --appimage-extract works without FUSE.
   (cd "$tmp" && "$src" --appimage-extract '*.desktop' && "$src" --appimage-extract .DirIcon) >/dev/null 2>&1
-  desktop=$(find "$tmp/squashfs-root" -maxdepth 1 -name '*.desktop' -print -quit 2>/dev/null)
-  if [[ -z $desktop ]]; then
+  link=$(find "$root" -maxdepth 1 -name '*.desktop' -printf '%f\n' -quit 2>/dev/null)
+  # The top-level .desktop is often a symlink into usr/share/applications.
+  [[ -n $link ]] && desktop="$root/$(resolve_in_image "$src" "$root" "$link")"
+  if [[ -z $link || ! -s $desktop ]]; then
     echo -e "\033[31mSkipping $(basename "$src"): no .desktop file inside\033[0m" >&2
     return 1
   fi
 
-  id=$(basename "$desktop" .desktop)
+  id=$(basename "$link" .desktop)
   dest="$app_dir/$id.AppImage"
 
-  if cmp -s "$src" "$dest"; then
+  if cmp -s "$src" "$dest" && [[ -s $desktop_dir/$id.desktop ]]; then
     echo "$id is already up to date"
     return 0
   fi
   [[ -f $dest ]] && echo "Updating $id" || echo "Installing $id"
 
   mkdir -p "$app_dir" "$desktop_dir" "$icon_dir"
-  install -m0755 "$src" "$dest.new" && mv -f "$dest.new" "$dest" || return 1
+  [[ $src -ef $dest ]] || { install -m0755 "$src" "$dest.new" && mv -f "$dest.new" "$dest"; } || return 1
 
-  # .DirIcon is often a symlink into the image; extract its target too.
-  icon="$tmp/squashfs-root/.DirIcon"
-  if [[ -L $icon ]]; then
-    icon_target=$(readlink "$icon")
-    (cd "$tmp" && "$src" --appimage-extract "${icon_target#/}") >/dev/null 2>&1
-  fi
+  # .DirIcon is often a symlink into the image, sometimes an absolute one.
+  icon="$root/$(resolve_in_image "$src" "$root" .DirIcon)"
   rm -f "$icon_dir/$id".*
-  if [[ -e $icon ]]; then
-    [[ $(file -bL --mime-type "$icon") == image/svg* ]] && ext=svg || ext=png
-    cp -L "$icon" "$icon_dir/$id.$ext"
+  if [[ -f $icon && ! -L $icon ]]; then
+    [[ $(file -b --mime-type "$icon") == image/svg* ]] && ext=svg || ext=png
+    cp "$icon" "$icon_dir/$id.$ext"
     icon="$icon_dir/$id.$ext"
   else
     icon=application-x-executable
