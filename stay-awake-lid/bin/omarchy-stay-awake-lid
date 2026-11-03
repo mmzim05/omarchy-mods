@@ -26,10 +26,12 @@ beep() {
   [[ $before == *MUTED* ]] && wpctl set-mute "$sink" 1
 }
 
-was_closed=false
+# Start from the current lid state, so a (re)start with the lid already closed
+# doesn't beep: only an open-to-closed change does.
+lid_closed && was_closed=true || was_closed=false
 while [[ -e $state ]]; do
   if lid_closed; then
-    $was_closed || beep &
+    $was_closed || { echo "Lid closed, beeping"; beep & }
     was_closed=true
   else
     was_closed=false

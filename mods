@@ -118,10 +118,9 @@ install_mod() {
     install -m0644 "$repo/$mod"/systemd/* "$unit_dir/"
     systemctl --user daemon-reload
     mapfile -t enabled < <(units "$mod" enabled)
-    mapfile -t static < <(units "$mod" static)
+    # Running units are not restarted: they pick up changes the next time they
+    # start, so a reinstall can't interrupt one (stay-awake-lid's inhibitor).
     ((${#enabled[@]})) && systemctl --user enable --now "${enabled[@]}"
-    # Restart what is already running so it picks up changed scripts.
-    ((${#static[@]})) && systemctl --user try-restart "${static[@]}"
   fi
   if [[ -f $repo/$mod/menu.jsonc ]]; then
     [[ -f $menu ]] || { mkdir -p "$(dirname "$menu")"; printf '{\n}\n' >"$menu"; }

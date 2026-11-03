@@ -30,8 +30,8 @@ Each mod is a folder with:
 
 - `bin/`: scripts copied into `~/.local/bin`.
 - `systemd/`: user units copied into `~/.config/systemd/user`. Units with an
-  `[Install]` section are enabled and started; running ones are restarted on
-  reinstall.
+  `[Install]` section are enabled and started. Running units aren't
+  restarted; they pick up changes the next time they start.
 - `menu.jsonc`: Omarchy menu rows, written into
   `~/.config/omarchy/extensions/omarchy-menu.jsonc` between
   `// omarchy-mods:<mod> start` and `end` markers. Everything outside the
