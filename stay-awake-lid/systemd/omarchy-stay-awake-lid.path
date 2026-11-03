@@ -1,0 +1,10 @@
+# Starts omarchy-stay-awake-lid.service while the bar's Stay Awake toggle is on
+# (Omarchy marks it with this state file), so closing the lid doesn't suspend.
+[Unit]
+Description=Keep running on lid close while Omarchy Stay Awake is on
+
+[Path]
+PathExists=%h/.local/state/omarchy/indicators/stay-awake
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,9 @@
+# Holds a logind handle-lid-switch inhibitor for as long as Stay Awake is on,
+# so closing the lid no longer suspends (it beeps instead). Hyprland still
+# locks the screen and turns off the internal display. Exits when Stay Awake
+# is turned off; the .path unit starts it again the next time it is turned on.
+[Unit]
+Description=Block lid-close suspend while Omarchy Stay Awake is on
+
+[Service]
+ExecStart=/usr/bin/systemd-inhibit --what=handle-lid-switch --mode=block --who="Omarchy Stay Awake" --why="Stay Awake is on" %h/.local/bin/omarchy-stay-awake-lid

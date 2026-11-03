@@ -1,15 +1,18 @@
 #!/bin/bash
 
 # Install, update or remove Omarchy mods. Each mod is a folder in this repo
-# with a bin/ of scripts, copied into ~/.local/bin, and a menu.jsonc of
-# Omarchy menu rows, written into ~/.config/omarchy/extensions/omarchy-menu.jsonc
-# between "// omarchy-mods:<mod> start/end" markers. Installed mods are listed
-# in ~/.local/state/omarchy-mods/installed so update knows what to refresh.
+# with any of: a bin/ of scripts, copied into ~/.local/bin; a systemd/ of user
+# units, copied into ~/.config/systemd/user, where units with an [Install]
+# section are enabled and started; and a menu.jsonc of Omarchy menu rows,
+# written into ~/.config/omarchy/extensions/omarchy-menu.jsonc between
+# "// omarchy-mods:<mod> start/end" markers. Installed mods are listed in
+# ~/.local/state/omarchy-mods/installed so update knows what to refresh.
 
 set -euo pipefail
 
 repo=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 bin_dir="$HOME/.local/bin"
+unit_dir="$HOME/.config/systemd/user"
 menu="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
 state="$HOME/.local/state/omarchy-mods/installed"
 
@@ -20,14 +23,14 @@ Usage: $(basename "$0") <command> [mod...]
   list               Show available mods and which are installed
   install <mod...>   Install mods, or reinstall them to pick up changes
   update             Pull this repo, then reinstall every installed mod
-  remove <mod...>    Remove mods' scripts and menu rows
+  remove <mod...>    Remove mods' scripts, units and menu rows
 EOF
 }
 
 available() {
   local dir
   for dir in "$repo"/*/; do
-    [[ -f $dir/menu.jsonc || -d $dir/bin ]] && basename "$dir"
+    [[ -f $dir/menu.jsonc || -d $dir/bin || -d $dir/systemd ]] && basename "$dir"
   done
 }
 
@@ -80,6 +83,18 @@ write_menu() {
   fi
 }
 
+# units <mod> enabled|static: the mod's unit names with, or without, an
+# [Install] section.
+units() {
+  local unit has
+  for unit in "$repo/$1"/systemd/*; do
+    [[ -f $unit ]] || continue
+    grep -q '^\[Install\]' "$unit" && has=enabled || has=static
+    [[ $has == "$2" ]] && basename "$unit"
+  done
+  return 0
+}
+
 # record <mod> add|remove
 record() {
   local list
@@ -90,13 +105,23 @@ record() {
 }
 
 install_mod() {
-  local mod=$1 script
+  local mod=$1 script unit enabled static
   check_mod "$mod"
   if [[ -d $repo/$mod/bin ]]; then
     mkdir -p "$bin_dir"
     for script in "$repo/$mod"/bin/*; do
       install -m0755 "$script" "$bin_dir/"
     done
+  fi
+  if [[ -d $repo/$mod/systemd ]]; then
+    mkdir -p "$unit_dir"
+    install -m0644 "$repo/$mod"/systemd/* "$unit_dir/"
+    systemctl --user daemon-reload
+    mapfile -t enabled < <(units "$mod" enabled)
+    mapfile -t static < <(units "$mod" static)
+    ((${#enabled[@]})) && systemctl --user enable --now "${enabled[@]}"
+    # Restart what is already running so it picks up changed scripts.
+    ((${#static[@]})) && systemctl --user try-restart "${static[@]}"
   fi
   if [[ -f $repo/$mod/menu.jsonc ]]; then
     [[ -f $menu ]] || { mkdir -p "$(dirname "$menu")"; printf '{\n}\n' >"$menu"; }
@@ -107,8 +132,16 @@ install_mod() {
 }
 
 remove_mod() {
-  local mod=$1 script
+  local mod=$1 script unit enabled static
   check_mod "$mod"
+  if [[ -d $repo/$mod/systemd ]]; then
+    mapfile -t enabled < <(units "$mod" enabled)
+    mapfile -t static < <(units "$mod" static)
+    ((${#enabled[@]})) && systemctl --user disable --now "${enabled[@]}" 2>/dev/null || true
+    ((${#static[@]})) && systemctl --user stop "${static[@]}" 2>/dev/null || true
+    for unit in "${enabled[@]}" "${static[@]}"; do rm -f "$unit_dir/$unit"; done
+    systemctl --user daemon-reload
+  fi
   for script in "$repo/$mod"/bin/*; do
     [[ -e $script ]] && rm -f "$bin_dir/$(basename "$script")"
   done

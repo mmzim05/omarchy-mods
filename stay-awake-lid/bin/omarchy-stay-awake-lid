@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# Run by omarchy-stay-awake-lid.service under a handle-lid-switch inhibitor,
+# so the laptop keeps running with the lid closed while Omarchy's Stay Awake
+# toggle is on. Beeps each time the lid closes, as a reminder that it won't
+# suspend. Exits when Stay Awake is turned off, which releases the inhibitor.
+
+state="$HOME/.local/state/omarchy/indicators/stay-awake"
+sound=/usr/share/sounds/freedesktop/stereo/dialog-warning.oga
+
+lid_closed() {
+  grep -qs closed /proc/acpi/button/lid/*/state
+}
+
+# Play the warning even when the output is muted or turned down: unmute and
+# raise it to at least 60% for the beep, then put mute and volume back.
+beep() {
+  local sink=@DEFAULT_AUDIO_SINK@ before level
+  before=$(wpctl get-volume "$sink") || return
+  level=$(awk '{print $2}' <<<"$before")
+  wpctl set-mute "$sink" 0
+  awk -v l="$level" 'BEGIN { exit !(l < 0.6) }' && wpctl set-volume "$sink" 0.6
+  pw-play "$sound"
+  pw-play "$sound"
+  wpctl set-volume "$sink" "$level"
+  [[ $before == *MUTED* ]] && wpctl set-mute "$sink" 1
+}
+
+was_closed=false
+while [[ -e $state ]]; do
+  if lid_closed; then
+    $was_closed || beep &
+    was_closed=true
+  else
+    was_closed=false
+  fi
+  sleep 1
+done
