@@ -122,6 +122,16 @@ else:
                               'bsdtar -xf dvpanel-framework-linux-x86_64.tgz')
     print('Warning: panels block not matched exactly, only patched tar line.')
 
+# DR 21.1.2: the CEF chrome-sandbox makes patchelf fail with "cannot normalize
+# PT_NOTE segment". It only links libc/libpthread, so it needs no rpath.
+patchelf_line = re.search(r'^( *)patchelf --set-rpath .*\n', content, flags=re.MULTILINE)
+skip = patchelf_line.group(1) + '[[ ${_file} == */chrome-sandbox ]] && continue\n' if patchelf_line else ''
+if skip and skip not in content:
+    content = content.replace(patchelf_line.group(0), skip + patchelf_line.group(0), 1)
+    print('Skipping chrome-sandbox in patchelf loop.')
+elif not skip:
+    print('Warning: patchelf loop not found, chrome-sandbox not skipped.')
+
 with open('PKGBUILD', 'w') as f:
     f.write(content)
 
