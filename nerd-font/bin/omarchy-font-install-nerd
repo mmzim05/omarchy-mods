@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# Fuzzy-find any font listed on nerdfonts.com, install it into
+# ~/.local/share/fonts, and switch the system monospace font to it.
+# The list is Nerd Fonts' own fonts.json, which drives the website.
+
+fonts_json_url=https://raw.githubusercontent.com/ryanoasis/nerd-fonts/master/bin/scripts/lib/fonts.json
+release_url=https://github.com/ryanoasis/nerd-fonts/releases/latest/download
+
+echo "Fetching Nerd Fonts list..."
+fonts_json=$(curl -fsSL "$fonts_json_url") || { echo "Could not fetch the Nerd Fonts list." >&2; exit 1; }
+
+fzf_args=(
+  --delimiter '\t'
+  --with-nth '2,3'
+  --preview "jq -r --arg f {1} '.fonts[] | select(.folderName == \$f) | \"\(.patchedName) Nerd Font\n\n\(.description)\n\nBased on: \(.unpatchedName) \(.version)\nLicense: \(.licenseId)\nMonospaced: \(.isMonospaced)\"' <<<\"\$FONTS_JSON\""
+  --preview-label='alt-p: toggle description, alt-j/k: scroll'
+  --preview-label-pos='bottom'
+  --preview-window 'down:40%:wrap'
+  --bind 'alt-p:toggle-preview'
+  --bind 'alt-d:preview-half-page-down,alt-u:preview-half-page-up'
+  --bind 'alt-k:preview-up,alt-j:preview-down'
+  --color 'pointer:green,marker:green'
+)
+
+folder=$(jq -r '.fonts[] | [.folderName, .patchedName, .description] | @tsv' <<<"$fonts_json" |
+  FONTS_JSON=$fonts_json fzf "${fzf_args[@]}" | cut -f1)
+[[ -n $folder ]] || exit 0
+
+font_dir="$HOME/.local/share/fonts/NerdFonts/$folder"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+echo "Downloading ${folder}..."
+curl -fL --progress-bar -o "$tmp/$folder.tar.xz" "$release_url/$folder.tar.xz" || exit 1
+mkdir -p "$tmp/x" && tar -xJf "$tmp/$folder.tar.xz" -C "$tmp/x" || exit 1
+
+rm -rf "$font_dir" && mkdir -p "$font_dir"
+find "$tmp/x" -type f \( -iname '*.ttf' -o -iname '*.otf' \) -exec mv -t "$font_dir" {} +
+fc-cache -f "$font_dir" >/dev/null
+
+# A release ships several families (Nerd Font / Mono / Propo, sometimes
+# style variants); let the user pick which one becomes the system font.
+mapfile -t families < <(fc-scan --format '%{family[0]}\n' "$font_dir" | sort -u)
+
+case ${#families[@]} in
+  0) echo "No font files found in ${folder}." >&2; exit 1 ;;
+  1) family=${families[0]} ;;
+  *) family=$(printf '%s\n' "${families[@]}" | fzf --prompt 'Font family> ') ;;
+esac
+[[ -n $family ]] || exit 0
+
+omarchy-font-set "$family" && omarchy-show-done

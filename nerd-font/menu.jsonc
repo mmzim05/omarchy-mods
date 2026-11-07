@@ -1,0 +1,1 @@
+"install.style.font.nerd": {"icon":"󰊄","label":"Any Nerd Font","description":"Search every font on nerdfonts.com","action":"xdg-terminal-exec --app-id=org.omarchy.terminal omarchy-font-install-nerd"},
