@@ -7,7 +7,7 @@ menu rows, plus a laptop lid tweak.
 |-----|------|
 | `appimage` | **Install > AppImage**: pick AppImages in `~/Downloads`, install or update them in `~/Applications` with a launcher entry and icon. **Remove > AppImage**: remove them again. |
 | `flatpak` | **Install > Flatpak**: fuzzy-search Flathub and install apps (sets up flatpak and the Flathub remote on first use). |
-| `nerd-font` | **Install > Style > Font > Any Nerd Font**: fuzzy-search every font on [nerdfonts.com](https://www.nerdfonts.com/font-downloads), download it into `~/.local/share/fonts/NerdFonts`, and make it the system font. |
+| `nerd-font` | **Install > Style > Font > Any Nerd Font**: fuzzy-search every font on [nerdfonts.com](https://www.nerdfonts.com/font-downloads), and install it into `~/.local/share/fonts/NerdFonts` for use in any app. The system font is not changed. |
 | `davinci-resolve` | **Install > Editor > DaVinci Resolve**: build and install DaVinci Resolve Studio from the `DaVinci_Resolve_Studio_<version>_Linux.zip` in `~/Downloads`, using the AUR `davinci-resolve-studio` package patched to that version. |
 | `stay-awake-lid` | While the bar's **Stay Awake** toggle is on, closing the laptop lid no longer suspends, so processes keep running. Each lid close plays a warning tone twice, even when the speaker is muted. |
 

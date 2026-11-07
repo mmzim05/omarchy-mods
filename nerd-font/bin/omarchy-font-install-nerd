@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Fuzzy-find any font listed on nerdfonts.com, install it into
-# ~/.local/share/fonts, and switch the system monospace font to it.
+# Fuzzy-find any font listed on nerdfonts.com and install it into
+# ~/.local/share/fonts for use in any app. The system font is left alone.
 # The list is Nerd Fonts' own fonts.json, which drives the website.
 
 fonts_json_url=https://raw.githubusercontent.com/ryanoasis/nerd-fonts/master/bin/scripts/lib/fonts.json
@@ -39,15 +39,6 @@ rm -rf "$font_dir" && mkdir -p "$font_dir"
 find "$tmp/x" -type f \( -iname '*.ttf' -o -iname '*.otf' \) -exec mv -t "$font_dir" {} +
 fc-cache -f "$font_dir" >/dev/null
 
-# A release ships several families (Nerd Font / Mono / Propo, sometimes
-# style variants); let the user pick which one becomes the system font.
-mapfile -t families < <(fc-scan --format '%{family[0]}\n' "$font_dir" | sort -u)
-
-case ${#families[@]} in
-  0) echo "No font files found in ${folder}." >&2; exit 1 ;;
-  1) family=${families[0]} ;;
-  *) family=$(printf '%s\n' "${families[@]}" | fzf --prompt 'Font family> ') ;;
-esac
-[[ -n $family ]] || exit 0
-
-omarchy-font-set "$family" && omarchy-show-done
+echo "Installed ${folder} Nerd Font:"
+fc-scan --format '  %{family[0]}\n' "$font_dir" | sort -u
+omarchy-show-done
