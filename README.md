@@ -9,6 +9,7 @@ menu rows, plus a laptop lid tweak.
 | `flatpak` | **Install > Flatpak**: fuzzy-search Flathub and install apps (sets up flatpak and the Flathub remote on first use). |
 | `nerd-font` | **Install > Style > Font > Any Nerd Font**: fuzzy-search every font on [nerdfonts.com](https://www.nerdfonts.com/font-downloads), and install it into `~/.local/share/fonts/NerdFonts` for use in any app. The system font is not changed. |
 | `davinci-resolve` | **Install > Editor > DaVinci Resolve**: build and install DaVinci Resolve Studio from the `DaVinci_Resolve_Studio_<version>_Linux.zip` in `~/Downloads`, using the AUR `davinci-resolve-studio` package patched to that version. |
+| `restart-to-windows` | **System > Restart to Windows**, above Reboot and Shutdown: reboots once into Windows by setting the firmware's `BootNext` to Windows Boot Manager, for dual-boot machines where the boot menu can't be seen. Run `omarchy-restart-to-windows --setup` once after installing: it asks for your sudo password and adds `/etc/sudoers.d/omarchy-restart-to-windows`, which allows only `efibootmgr --bootnext <Windows entry>` without a password. The row is hidden until that rule is in place. `mods remove` doesn't delete the rule: run `sudo rm /etc/sudoers.d/omarchy-restart-to-windows`. |
 | `stay-awake-lid` | While the bar's **Stay Awake** toggle is on, closing the laptop lid no longer suspends, so processes keep running. Each lid close plays a warning tone twice, even when the speaker is muted. |
 
 ## Install

@@ -1,0 +1,5 @@
+"system.reboot": {"icon":"󰜉","label":"Reboot","when":"false"},
+"system.shutdown": {"icon":"󰐥","label":"Shutdown","when":"false"},
+"system.reboot-windows": {"icon":"󰖳","label":"Restart to Windows","when":"omarchy-restart-to-windows --check","action":"omarchy-restart-to-windows"},
+"system.reboot-after-windows": {"icon":"󰜉","label":"Reboot","action":"omarchy-system reboot"},
+"system.shutdown-after-windows": {"icon":"󰐥","label":"Shutdown","action":"omarchy-system shutdown"},

@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Reboot once into Windows by setting the firmware's BootNext to the Windows
+# Boot Manager entry. Used where the boot loader menu can't be seen or reached.
+# Setting BootNext needs root, so --setup installs a sudo rule that allows
+# only "efibootmgr --bootnext <that entry>" without a password.
+
+readonly EFIBOOTMGR="/usr/bin/efibootmgr"
+readonly SUDOERS_FILE="/etc/sudoers.d/omarchy-restart-to-windows"
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [--setup|--check|--help]
+
+  (no option)  Set BootNext to Windows Boot Manager, then reboot
+  --setup      Install the sudo rule that lets this run without a password
+  --check      Exit 0 if the sudo rule is in place for the current entry
+EOF
+}
+
+# Print the boot number (e.g. 0000) of the Windows Boot Manager entry.
+windows_entry() {
+  local entry
+  entry=$("$EFIBOOTMGR" \
+    | sed -nE 's/^Boot([0-9A-Fa-f]{4})\*? Windows Boot Manager.*/\1/p' \
+    | head -n 1)
+  if [[ -z "$entry" ]]; then
+    echo "Error: no Windows Boot Manager entry in efibootmgr" >&2
+    return 1
+  fi
+  echo "$entry"
+}
+
+# The rule names the entry number, so a renumbered entry needs --setup again.
+setup() {
+  local entry rule tmp_file
+  entry=$(windows_entry)
+  rule="$USER ALL=(root) NOPASSWD: $EFIBOOTMGR --bootnext $entry"
+  tmp_file=$(mktemp)
+  printf '%s\n' "$rule" >"$tmp_file"
+  if ! visudo -cqf "$tmp_file"; then
+    rm -f "$tmp_file"
+    echo "Error: generated sudo rule failed validation" >&2
+    exit 1
+  fi
+  sudo install -m 0440 -o root -g root "$tmp_file" "$SUDOERS_FILE"
+  rm -f "$tmp_file"
+  echo "Installed $SUDOERS_FILE for Boot$entry (Windows Boot Manager)"
+}
+
+# "sudo -l <command>" also passes for rules that need a password, such as
+# (ALL) ALL, so look for the command in a NOPASSWD line instead.
+check() {
+  local entry pattern
+  entry=$(windows_entry 2>/dev/null) || return 1
+  pattern="NOPASSWD: (.*, )?$EFIBOOTMGR --bootnext $entry(,|$)"
+  sudo -n -l 2>/dev/null | grep -qE "$pattern"
+}
+
+restart() {
+  local entry
+  if ! entry=$(windows_entry) \
+    || ! sudo -n "$EFIBOOTMGR" --bootnext "$entry" >/dev/null; then
+    notify-send -u critical "Restart to Windows failed" \
+      "Could not set BootNext. Run: $(basename "$0") --setup"
+    exit 1
+  fi
+  exec omarchy-system reboot
+}
+
+main() {
+  case "${1:-}" in
+    "") restart ;;
+    --setup) setup ;;
+    --check) check ;;
+    -h | --help) usage ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"
